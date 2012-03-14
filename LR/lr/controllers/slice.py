@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from lr.lib.oaipmherrors import *
 import types
 from lr.lib import resumption_token
+import itertools
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ END_DATE = 'until'
 START_DATE = 'from'
 IDENTITY = 'identity'
 ANY_TAGS = 'any_tags'
+RELATED = 'related'
 #FULL_DOCS = 'full_docs'
 IDS_ONLY = 'ids_only'
 CALLBACK = 'callback'
@@ -108,6 +110,7 @@ class SliceController(BaseController):
         if _set_string_param(START_DATE) : param_count += 1
         if _set_string_param(IDENTITY) : param_count += 1
         if _set_string_param(ANY_TAGS) : param_count += 1
+        if _set_string_param(RELATED) : param_count += 1
         _set_string_param(END_DATE)
         _set_boolean_param(IDS_ONLY)
         _set_string_param(CALLBACK, False)
@@ -128,7 +131,7 @@ class SliceController(BaseController):
     def _get_view(self,view_name = '_design/learningregistry-slice/_view/docs',keys=[], include_docs = False, resumptionToken=None, limit=None):
         db_url = '/'.join([appConfig['couchdb.url'],appConfig['couchdb.db.resourcedata']])
         
-        opts = {"stale": appConfig['couchdb.stale.flag'], "reduce": False }
+        opts = {"stale": "ok", "reduce": False }
         
         if include_docs:
             opts["include_docs"] = True
@@ -150,14 +153,9 @@ class SliceController(BaseController):
         return view
     
     def _get_view_total(self,view_name = '_design/learningregistry-slice/_view/docs',keys=[], resumptionToken=None):
-        
-        if resumptionToken and "maxResults" in resumptionToken and resumptionToken["maxResults"] != None :
-            return resumptionToken["maxResults"];
-            
-        
         db_url = '/'.join([appConfig['couchdb.url'],appConfig['couchdb.db.resourcedata']])
         
-        opts = {"stale": appConfig['couchdb.stale.flag'], "reduce": True, "group": True }
+        opts = {"stale": "ok", "reduce": True, "group": True }
         
         if self.enable_flow_control and resumptionToken != None:
             opts["keys"] = resumptionToken["keys"]
@@ -173,8 +171,6 @@ class SliceController(BaseController):
         for row in view:
             if "value" in row:
                 totalDocs += row["value"]
-        
-        #resumptionToken["maxResults"] = totalDocs;
         return totalDocs
     
     def _get_keys(self, params):
@@ -188,72 +184,50 @@ class SliceController(BaseController):
                 dates = [params[START_DATE]]
         identity = params[IDENTITY].lower()
         any_tags = params[ANY_TAGS].lower()
+        related = params[RELATED].lower()
         
         param_count = params['param_count']
         
         if any_tags != "" :
-            any_tag_list = any_tags.split(",")
-            wrapped_any_tag_list = []
-            for tag in any_tag_list:
-                try:
-                    #tag = "{\"tag\":\""+tag+"\"}"
-                    tag = {"tag":tag}
-                    wrapped_any_tag_list.append(tag)
-                    print("wrapped tag: " + str(tag))
-                except:
-                    print("failed to wrap tag: " + str(tag))
-                    pass
-            any_tag_list = wrapped_any_tag_list
+            try:
+                any_tags = [{"tag":t} for t in any_tags.split(",")]
+                for t in any_tags:
+                    print("wrapped tag: " + str(t))
+            except:
+                print("failed to wrap tag: " + str(tag))
+                pass
         if(identity != ""):
             try:
-                #identity = "{\"tag\":\""+identity+"\"}"
-                identity = {"id":identity}
+                identity = [{"id":identity}]
                 print("wrapped identity: " + str(identity))
             except:
             	pass
-        
-        wrapped_dates = []
-        for date in dates:
+        if related != "":
             try:
-                #date = "{\"tag\":\""+date+"\"}"
-                date = {"date":date}
-                wrapped_dates.append(date)
-                print("wrapped date: " + str(date))
+                related = [{"related":r} for r in related.split(",")]
+                for r in related:
+                    print("wrapped related: " + str(r))
             except:
-                print("failed to wrap date: " + str(date))
                 pass
-        dates = wrapped_dates
         
-        if param_count == 1:
-            if len(dates)>0 :
-                for date in dates :
-                    keys.append(date)
-            elif identity != "" :
-                keys.append(identity)
-            elif any_tags != "" :
-                for tag in any_tag_list:
-                    keys.append(tag)
-        elif param_count == 2:
-            if len(dates) == 0 :
-                for tag in any_tag_list:
-                    keys.append([identity, tag])
-            elif identity == "" :
-                for tag in any_tag_list:
-                    for date in dates:
-                        log.debug("slicegotdateandtag: " + str([date, tag]))
-                        keys.append([date, tag])
-            elif any_tags == "" :
-                for date in dates:
-                    keys.append([date, identity])
-        elif param_count == 3:
-            for tag in any_tag_list:
-                for date in dates:
-                    keys.append([date, identity, tag])
-         
+        try:
+            dates = [{"date":d} for d in dates]
+            for d in dates:    
+                print("wrapped date: " + str(d))
+        except:
+            print("failed to wrap dates: " + str(dates))
+            pass
+        
+        sources = [dates, any_tags, related, identity]
+        sources = [s for s in sources if (s != "" and len(s) > 0)]
+        
+        if len(sources) > 1:
+            keys = list(apply(itertools.product, sources))
+        else:
+            keys = sources[0]
+            
         print("final slice keys: " + str(keys))
         return keys
-    
-    
         
     def _get_dates(self, params):
         cur = datetime.strptime(params[START_DATE],"%Y-%m-%d")
@@ -274,7 +248,6 @@ class SliceController(BaseController):
         prefix = '{"documents":[\n'
         num_sent = 0
         doc_count = 0
-        update_resumption_max_results = current_rt and "maxResults" in current_rt and current_rt["maxResults"] != None
         if docs is not None:
             for row in docs:
                 doc_count += 1
@@ -294,8 +267,6 @@ class SliceController(BaseController):
                     prefix = ",\n"
                 else:
                     log.debug("{0} skipping: alreadySent {1} / forceUnique {2}".format(doc_count, repr(alreadySent), forceUnique))
-                    if update_resumption_max_results:
-                        current_rt["maxResults"] = current_rt["maxResults"] - 1
         
         if doc_count == 0:
             yield prefix
@@ -310,7 +281,7 @@ class SliceController(BaseController):
                 offset = 0
                 
             if offset+doc_count < maxResults:
-                rt = ''' "resumption_token":"{0}", '''.format(resumption_token.get_offset_token(self.service_id, offset=offset+doc_count, keys=keys, maxResults=maxResults))
+                rt = ''' "resumption_token":"{0}", '''.format(resumption_token.get_offset_token(self.service_id, offset=offset+doc_count, keys=keys))
 
         
 

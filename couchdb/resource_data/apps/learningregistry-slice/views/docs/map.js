@@ -2,6 +2,15 @@ function(doc) {
 
 	if (doc.doc_type != "resource_data" || !doc.node_timestamp) return;
 	
+	//only emitting related as a single key so we don't kill this view
+	if(doc.resource_data && doc.resource_data.activity && doc.resource_data.activity.related) {
+	    for each(var related in doc.resource_data.activity.related) {
+		if(related.id) {
+	            emit({'related': related.id.toLowerCase() }, null);
+		}
+	    }
+	}
+
 	var date_stamp = doc.node_timestamp;
 	date_stamp = date_stamp.substring(0,10);
 	var identities = new Array();
@@ -13,38 +22,14 @@ function(doc) {
 		return false;
 	}	
 	
-	
 	//grab all the identities in identity or submitter/curator/owner/signer (depending on version)
-	//if any identities are identical, ignore redundant ones.
 	if(doc.identity) {
-		if(doc.identity.submitter) {
-			identities.push(doc.identity.submitter.toLowerCase());
-		}
-		if(doc.identity.curator) {
-			var curator = doc.identity.curator.toLowerCase();
-			if(!arrayContains(identities,curator)) {
-				identities.push(curator);
-			}
-		}
-		if(doc.identity.owner) {
-			var owner = doc.identity.owner.toLowerCase();
-			if(!arrayContains(identities,owner)) {
-				identities.push(owner);
-			}
-		}
-		if(doc.identity.signer) {
-			var signer = doc.identity.signer.toLowerCase();
-			if(!arrayContains(identities,signer)) {
-				identities.push(signer);
-			}
-		}
+		if(doc.identity.submitter) identities.push(doc.identity.submitter.toLowerCase());
+		if(doc.identity.curator) identities.push(doc.identity.curator.toLowerCase());
+		if(doc.identity.owner) identities.push(doc.identity.owner.toLowerCase());
+		if(doc.identity.signer) identities.push(doc.identity.signer.toLowerCase());
 	}
-	if(doc.submitter) {
-		var submitter = doc.submitter.toLowerCase();
-		if(!arrayContains(identities,submitter)) {
-			identities.push(submitter);
-		}
-	} 
+	if(doc.submitter) identities.push(doc.submitter.toLowerCase());
 	
 
 	//build identities indices
@@ -89,4 +74,6 @@ function(doc) {
 	
 	if(doc.resource_data_type) emitaAllKeywordIndices(doc.resource_data_type.toLowerCase());
 	
+	
+    
 }
