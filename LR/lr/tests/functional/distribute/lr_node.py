@@ -48,7 +48,7 @@ _TEST_DISTRIBUTE_DIR_LOG = path.abspath(path.join(path.dirname(_PYLONS_CONFIG), 
     
 class Node(object):
     _REPLICATOR_DB = '_replicator'
-    _CONFIG_DATABASE_NAMES=["community", "network", "node", "resourcedata"]
+    _CONFIG_DATABASE_NAMES=["community", "network", "node", "resourcedata", "incoming"]
     _RESOURCE_DATA_FILTER = """
         function(doc , req)
         {
@@ -93,6 +93,10 @@ class Node(object):
 
     def _getNodeUrl(self):
         return self._nodeConfig.get("node_config", "node_url").strip()
+    
+    nodeId = property(lambda self: self._nodeDescription.get("node_id"), None, None, None)
+    nodeURL = property(lambda self: self._nodeUrl(), None, None, None)
+    
 
     def _setupDescriptions(self):
         #  Set the node, network and community
@@ -155,10 +159,15 @@ class Node(object):
             pylonsConfig.set("server:main", option, self._nodeConfig.get("pylons_server", option))
     
         #Set the ressource data url
-
+        
         pylonsConfig.set("app:main", "lr.distribute_resource_data_url",  
                                     urlparse.urljoin(self._nodeConfig.get("couch_info", "server"),
                                                            self._nodeConfig.get("couch_info", "resourcedata")))
+        
+        pylonsConfig.set("app:main", "lr.distribute_incoming_url",  
+                                    urlparse.urljoin(self._nodeConfig.get("couch_info", "server"),
+                                                           self._nodeConfig.get("couch_info", "incoming")))
+
         #change the logging level to the highest level to avoid spamming log.
         #pylonsConfig.set("logger_lr", "level", "CRITICAL") 
         
@@ -227,6 +236,7 @@ class Node(object):
 
     def publishResourceData(self, docs):
         resourceDatabase = self._server[self._nodeConfig.get("couch_info", "resourcedata")]
+        
         for d in docs:
             doc = {}
             doc.update(d)
@@ -314,6 +324,7 @@ class Node(object):
                 #Get the replication document.
                 response = urllib2.urlopen(self._replicatorUrl+'/'+connectionResults['replication_results']['id'])
                 doc = json.load(response)
+                log.info('REPLICATION DOC:' + doc)
                 response.close()
                 
                 print('\n\n---------------Replication  Status-----------')
@@ -338,6 +349,7 @@ class Node(object):
                                                     {'Content-Type':'application/json; charset=utf-8'})
                                                     
             self._distributeResultsList.append(json.load(urllib2.urlopen(request))) 
+            log.info(("DISTRIBUTE: \n{0}".format(pprint.pformat(self._distributeResultsList[-1]))))
             print("Distribute reponse: \n{0}".format(pprint.pformat(self._distributeResultsList[-1])))
             
             if waitOnReplication:
@@ -384,17 +396,15 @@ class Node(object):
             sourceDoc.update(sourceDocs[i]["doc"])
             destDoc ={}
             destDoc.update(destinationDocs[i]["doc"])
-            if (h.convertToISO8601UTC(destDoc["node_timestamp"]) <= h.convertToISO8601UTC(sourceDoc["node_timestamp"])):
-                log.debug("{0} and {1} error".format(sourceDoc['doc_ID'], destDoc['doc_ID']))
-                return False
+            
             #remove the node_timestamp and _rev then compare  the docs
             del sourceDoc["node_timestamp"]
             del destDoc["node_timestamp"]
             del destDoc["_rev"]
             del sourceDoc["_rev"]
             if sourceDoc != destDoc:
-                 log.debug("{0} and {1} error".format(sourceDoc['doc_ID'], destDoc['doc_ID']))
-                 return False
+                print("{0} and {1} error".format(sourceDoc['doc_ID'], destDoc['doc_ID']))
+                return False
         return True
     
     def _waitOnNodeStop(self):

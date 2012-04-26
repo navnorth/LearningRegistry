@@ -50,17 +50,28 @@ def fixUtf8(input):
         return input.encode('utf-8')
     else:
         return input
-
+def isViewUpdated(db,designDocName):
+    dbInfo = db.info()
+    viewInfoUrl = "{0}/{1}/_info".format(db.resource.url, designDocName)
+    log.debug(viewInfoUrl)
+    viewInfo = json.load(urllib2.urlopen(viewInfoUrl))
+    return json.dumps(dbInfo['update_seq'] == viewInfo['view_index']['update_seq'])
 def getServiceDocument(serviceName):
-    from lr.model.base_model import appConfig
+    from pylons import config
+    res = None
     json_headers = { "Content-Type": "application/json; charset=\"utf-8\"" }
-    url = "{0}/{1}/{2}".format(appConfig['couchdb.url'],appConfig['couchdb.db.node'],urllib.quote(serviceName))
-    req = urllib2.Request(url=url, headers=json_headers)
-    res = urllib2.urlopen(req)
-    return json.load(res)
+    url = "{0}/{1}/{2}".format(config['app_conf']['couchdb.url'],config['app_conf']['couchdb.db.node'],urllib.quote(serviceName))
+    try:
+        req = urllib2.Request(url=url, headers=json_headers)
+        res = json.load(urllib2.urlopen(req))
+    except urllib2.URLError as e:
+        #Ignore exception that happens with the service document is just not there.
+        if (e.code != 404):
+            raise(e)
+    return res
 
 
-def getView(database_url, view_name, method="GET", documentHandler=None, **kwargs):    
+def getResponse(database_url, view_name, method="GET", **kwargs):    
     json_headers = { "Content-Type": "application/json; charset=\"utf-8\"" }
     get_head_args = ["key", "startkey", "startkey_docid", "endkey", 
                      "endkey_docid", "limit", "stale", "descending", "skip", 
@@ -87,8 +98,8 @@ def getView(database_url, view_name, method="GET", documentHandler=None, **kwarg
     if method is "POST" or post_data != {}:
         view_url = '?'.join(['/'.join([database_url,view_name]),urllib.urlencode(query_args)]) 
         post_data = json.dumps(post_data)
-        log.debug("POST "+view_url)
-        log.debug("DATA " + post_data)
+        # log.debug("POST "+view_url)
+        # log.debug("DATA " + post_data)
         view_req = urllib2.Request(view_url, data=post_data, headers=json_headers)
     else:        
         view_url = '?'.join(['/'.join([database_url,view_name]),urllib.urlencode(query_args)])
@@ -96,8 +107,10 @@ def getView(database_url, view_name, method="GET", documentHandler=None, **kwarg
         view_req = urllib2.Request(view_url, headers=json_headers)
         log.debug("GET "+view_url)  
     resp = urllib2.urlopen(view_req)
-    
+    return resp
+def getView(database_url, view_name, method="GET", documentHandler=None, **kwargs):    
     dh = StreamingCouchDBDocHandler(documentHandler)
+    resp = getResponse(database_url,view_name,method,**kwargs)
     return dh.generator(resp)
     
 #    for data in resp:

@@ -13,6 +13,7 @@ import lr.lib.resumption_token as rt
 log = logging.getLogger(__name__)
 import ast
 import string
+import re
 from lr.model import LRNode as sourceLRNode, \
             NodeServiceModel, ResourceDataModel, LRNodeModel, defaultCouchServer, appConfig
 BASIC_HARVEST_SERVICE_DOC = appConfig['lr.harvest.docid']
@@ -118,9 +119,15 @@ class HarvestController(BaseController):
             }
             return json.dumps(data)
         def listmetadataformats():
+            def formatFromDesignDoc(doc):
+                if type(doc['metadataFormat']) == str:
+                    prefix = doc['metadataFormat']
+                else:
+                    prefix = doc['metadataFormat']['metadataPrefix']
+                return {'metadataformat':{"metadataPrefix":prefix}}
             self._getServiceDocment(False)
             data = self.get_base_response(verb,body)
-            data['listmetadataformats']=map(lambda format: {'metadataformat':{"metadataPrefix":format['metadataFormat']}},self.metadataFormats)
+            data['listmetadataformats']=map(formatFromDesignDoc,self.metadataFormats)
             return json.dumps(data)
         def listsets():
             data = self.get_base_response(verb,body)
@@ -142,11 +149,12 @@ class HarvestController(BaseController):
     def _test_time_params(self, params):
         
         if not params.has_key('from') or (params.has_key('from') and params['from'] is None):
-            from_date = self.__parse_date('1990-10-10 12:12:12.0Z')
+            from_date = self.__parse_date('1990-10-10 12:12:12.0')
         else:
-            from_date = self.__parse_date(params['from'])
+            r = re.compile('.[0-9]+Z')
+            from_date = re.sub(r,"",self.__parse_date(params['from']))
         if not params.has_key('until') or (params.has_key('until') and params['until'] is None):
-            until_date = self.__parse_date(datetime.utcnow().isoformat()+ "Z")
+            until_date = self.__parse_date(datetime.utcnow().isoformat() + "Z")
         else:
             until_date = self.__parse_date(params['until'])
         return from_date,until_date         
@@ -154,13 +162,14 @@ class HarvestController(BaseController):
         data = self.get_base_response(verb,body)
         try:
             from_date, until_date = self._test_time_params(params)
-        except:
+        except Exception as ex:
+            log.error(ex)
             data['OK'] = False
             data['error'] = 'badArgument'
             yield json.dumps(data)
             return
         data['request']['from'] = from_date
-        data['request']['until'] = until_date             
+        data['request']['until'] = until_date         
         if from_date > until_date:
           data['OK'] = False
           data['error'] = 'badArgument'
