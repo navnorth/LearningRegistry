@@ -23,6 +23,7 @@ _RESOURCE_DISTRIBUTABLE_TYPE = "resource_data_distributable"
 _RESOURCE_TYPE = "resource_data"
 _DOC_TYPE = "doc_type"
 _DOC = "doc"
+_ID = "id"
 
 
 class IncomingCopyHandler(BaseChangeHandler):
@@ -40,17 +41,22 @@ class IncomingCopyHandler(BaseChangeHandler):
 
 
 	def _handle(self, change, database):
-
+		should_delete = True
 		try:
 			log.debug('got here')
 			newDoc = change[_DOC]
 			newDoc['node_timestamp'] = h.nowToISO8601Zformat()
 			rd = ResourceDataModel(newDoc)
-			rd.save()
-			del database[newDoc['node_ID']]
+			rd.save(log_exceptions=False)				
 		except SpecValidationException:
 			log.error(str(newDoc) + " Fails Validation" )
 		except ResourceConflict:
 			pass #ignore conflicts
 		except Exception as ex:
+			should_delete = False # don't delete something unexpected happend
 			log.error(ex)
+		if should_delete:
+			try:
+				del database[change[_ID]]
+			except Exception as ex:
+				log.error(ex)
