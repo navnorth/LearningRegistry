@@ -22,8 +22,34 @@ from pylons import request, response, session, tmpl_context as c, url, config
 from pylons.controllers.util import abort, redirect
 from lr.lib.base import BaseController, render
 from  lr.model import ResourceDataModel, LRNode
-from  lr.lib import ModelParser, SpecValidationException, helpers as  h
+from  lr.lib import ModelParser, SpecValidationException, helpers as  h, signing, oauth, bauth
+from lr.lib.replacement_helper import ResourceDataReplacement
+from lr.lib.schema_helper import ResourceDataModelValidator
+
+
 log = logging.getLogger(__name__)
+
+def _continue_if_missing_oauth():
+    try:
+        nosig = (session["oauth-sign"]["status"] == oauth.status.NoSignature)
+        if nosig:
+            session["oauth-sign"] = None
+        return nosig
+    except:
+        return True
+
+def _no_abort(prev):
+    return True
+
+__service_doc = None
+def _service_doc(recache=False):
+    def get_service_doc():
+        global __service_doc
+        if not __service_doc or recache:
+            __service_doc = h.getServiceDocument(config["lr.publish.docid"])
+        return __service_doc
+    return get_service_doc
+
 
 
 class PublishController(BaseController):
@@ -35,14 +61,19 @@ class PublishController(BaseController):
     __OK = "OK"
     __DOCUMENT_RESULTS =  'document_results'
     __DOCUMENTS = 'documents'
+
+    repl_helper = ResourceDataReplacement()
     
-    def create(self):
+
+    @oauth.authorize("oauth-sign", _service_doc(True), roles=None, mapper=signing.lrsignature_mapper, post_cond=_no_abort)
+    @bauth.authorize("oauth-sign", _service_doc(), roles=None, pre_cond=_continue_if_missing_oauth, realm="Learning Registry")
+    def create(self, *args, **kwargs):
 
         results = {self.__OK:True}
         error_message = None
         try:
             data = json.loads(request.body)
-            doc_limit =  h.getServiceDocument(config['lr.publish.docid'])['service_data']['doc_limit']
+            doc_limit =  _service_doc()()['service_data']['doc_limit']
             
             if not self.__DOCUMENTS in data.keys():
                 # Comply with LR-RQST-009 'Missing documents in POST'
@@ -56,7 +87,7 @@ class PublishController(BaseController):
                 log.debug(error_message)
                 results[self.__ERROR] = error_message
             else:
-                results[self.__DOCUMENT_RESULTS ] = map(self._publish, data[self.__DOCUMENTS])
+                results[self.__DOCUMENT_RESULTS ] = map(lambda doc: signing.sign_doc(doc, cb=self._publish, session_key="oauth-sign"), data[self.__DOCUMENTS])
         except Exception as ex:
             log.exception(ex)
             results[self.__ERROR] = str(ex)
@@ -83,9 +114,9 @@ class PublishController(BaseController):
             key = f['filter_key']
             resourceValue = None
             
-            for k in resourceData._specData.keys():
+            for k in resourceData.keys():
                 if re.search(key, k) is not None:
-                    resourceValue = str(resourceData.__getattr__(k))
+                    resourceValue = str(resourceData[k])
                     break
                     
             if  resourceValue is None:
@@ -115,27 +146,26 @@ class PublishController(BaseController):
              
         return [False, None]
         
-    def _publish(self, envelopData):
-        if isinstance(envelopData,unicode):
-            envelopeData = json.loads(envelopData)
+    def _publish(self, resourceData):
+        if isinstance(resourceData,unicode):
+            resourceData = json.loads(resourceData)
             
         result={self.__OK: True}
 
         try:
             # Set the envelop data timestaps.
-            timeStamp = h. nowToISO8601Zformat()
-            for stamp in ResourceDataModel._TIME_STAMPS:
-                    envelopData[stamp] = timeStamp
-                    
-            resourceData = ResourceDataModel(envelopData)
+            resourceData = ResourceDataModelValidator.set_timestamps(resourceData)
+
             #Check if the envelop get filtered out
             isFilteredOut, reason = self._isResourceDataFilteredOut(resourceData)
             if isFilteredOut:
                 result[self.__ERROR] = reason
             else:
-                resourceData.publishing_node = LRNode.nodeDescription.node_id
-                resourceData.save()
-                result[resourceData._DOC_ID] = resourceData.doc_ID 
+                resourceData["publishing_node"] = LRNode.nodeDescription.node_id
+                result = self.repl_helper.handle(resourceData)
+                # ResourceDataModelValidator.save(resourceData)
+                result[ResourceDataModelValidator.DOC_ID] = resourceData[ResourceDataModelValidator.DOC_ID]
+
                  
         except SpecValidationException as ex:
             log.exception(ex)

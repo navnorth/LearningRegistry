@@ -151,6 +151,7 @@ class Node(object):
 
         #Set the couchdb database info
         pylonsConfig.set("app:main", "couchdb.url", self._nodeConfig.get("couch_info", "server"))
+        pylonsConfig.set("app:main", "couchdb.url.dbadmin", self._nodeConfig.get("couch_info", "serveradmin"))
         for database in self._CONFIG_DATABASE_NAMES:
             pylonsConfig.set("app:main", "couchdb.db.{0}".format(database),
                                        self._nodeConfig.get("couch_info" , database))
@@ -370,6 +371,16 @@ class Node(object):
             options["filter_description"] = json.dumps(filter_description)
         return db.changes(**options)["results"]
 
+    def getIncomingDataDocs(self):
+        db = self._server[self._nodeConfig.get("couch_info", "incoming")]        
+        #For source node get all the resource_data documents using the filter
+        # that was using to distribute the document to destination node.
+        options = { "filter": "filtered-replication/change_feed_filter",
+                            "include_docs":include_docs,
+                            "doc_type":doc_type}
+        if filter_description is not None:
+            options["filter_description"] = json.dumps(filter_description)
+        return db.changes(**options)["results"]        
 
     def compareDistributedResources(self, destination, filter_description=None):
         """This method considers this node as source node.
@@ -379,7 +390,7 @@ class Node(object):
         nodes that are being compared"""
 
         sourceResults = self.getResourceDataDocs(filter_description)
-        destinationResults = destination.getResourceDataDocs() 
+        destinationResults = destination.getIncomingDataDocs() 
         
         #check the number of source document is the same at destination.
         #otherwise the nodes resource distribution failed somehow.
@@ -448,13 +459,12 @@ class Node(object):
         if self._isRunning == True:
            return
             
-        # remove any existing log file to start from scratch to avoid ever 
-        # growing log file.
+        # # remove any existing log file to start from scratch to avoid ever 
+        # # growing log file.
         self.removeTestLog()
         
         #Create the log file directory if it does not exists.
         if not path.exists(_TEST_DISTRIBUTE_DIR_LOG):
-            print("create dir")
             os.mkdir(_TEST_DISTRIBUTE_DIR_LOG)
             
         self._nodeProcess.start()
@@ -462,8 +472,8 @@ class Node(object):
         self._waitOnNodeStart()       
         self._isRunning = True
         
-        #Wait the change monitor to catch up
-        self.waitOnChangeMonitor()
+        # #Wait the change monitor to catch up
+        # self.waitOnChangeMonitor()
         print("node '{0}' started ....\n".format(self._nodeName) )
         
     

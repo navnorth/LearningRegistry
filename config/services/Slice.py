@@ -14,7 +14,7 @@ def install(server, dbname, setupInfo):
     active = getInput("Enable Slice?", "T", isBoolean)
     custom_opts["active"] = active.lower() in YES
     
-    active = getInput("Enable Flow Control for Slice?", "F", isBoolean)
+    active = getInput("Enable Flow Control for Slice?", "T", isBoolean)
     custom_opts["flow_control"] = active.lower() in YES
     
     if custom_opts["flow_control"]:
@@ -43,7 +43,7 @@ class __SliceServiceTemplate(ServiceTemplate):
         # Returns keys/pair where the keys is the destination database name
         # and value is the couchapp directory name.  This assumes a central
         # location for all couchapps.
-        self.couchapps ={'resource_data': ['apps/learningregistry-slice'] }
+        self.couchapps ={'resource_data': ['apps/learningregistry-slicelite'] }
 
     
     def _optsoverride(self):

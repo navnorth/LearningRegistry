@@ -183,7 +183,7 @@ class DistributeController(BaseController):
 
             credential = sourceLRNode.getDistributeCredentialFor(destinationUrl)
             if credential is not None:
-                parsedUrl = urlparse.urlparse()
+                parsedUrl = urlparse.urlparse(destinationUrl)
                 destinationUrl = destinationUrl.replace(parsedUrl.netloc, "{0}:{1}@{2}".format(
                                                 credential['username'], credential['password'], parsedUrl.netloc))
             
@@ -192,8 +192,10 @@ class DistributeController(BaseController):
                 
             replicationOptions['target'] = destinationUrl
             
+            authz_header = h.getBasicAuthHeaderFromURL(appConfig['couchdb.url.dbadmin']);
+            authz_header.update( { 'Content-Type': 'application/json'})
             request = urllib2.Request(urlparse.urljoin(appConfig['couchdb.url'], '_replicator'),
-                                    headers={'Content-Type':'application/json' },
+                                    headers=authz_header,
                                     data = json.dumps(replicationOptions))
             
             log.info("\n\nReplication started\nSource:{0}\nDestionation:{1}\nArgs:{2}".format(

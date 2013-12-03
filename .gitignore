@@ -14,9 +14,16 @@ MANIFEST
 #*.egg-info
 
 # the locally generated config file
+docs/_build/*
+
 LR/*.ini
 LR/*.backup
 /LR/data/templates
 
 /data-pumps/oai-pmh-data-pump-config.json
 /utils/testconfig.ini
+
+env
+couchdb/apps/kanso/*/packages
+
+LR/data/sessions/*

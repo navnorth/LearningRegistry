@@ -16,7 +16,7 @@ from routes.util import URLGenerator
 from webtest import TestApp,AppError
 from datetime import datetime
 import pylons.test
-import logging
+import logging, wsgi_intercept
 from nose.tools import raises
 log = logging.getLogger(__name__)
 __all__ = ['environ', 'url', 'TestController']
@@ -38,6 +38,11 @@ class TestController(TestCase):
         TestCase.__init__(self, *args, **kwargs)
         self.from_date = datetime(1990,1,1).isoformat() + "Z"
         self.controllerName = None
+        def get_wsgiapp():
+            return wsgiapp
+        wsgi_intercept.add_wsgi_intercept('localhost', 80, get_wsgiapp)
+        wsgi_intercept.add_wsgi_intercept('127.0.0.1', 80, get_wsgiapp)
+
 
     def test_error(self):       
         resp = self.app.get(url(controller='foo'), status=404)
@@ -49,4 +54,4 @@ class TestController(TestCase):
             assert res.headers['Access-Control-Allow-Origin'] == 'http://foo.bar'
             assert res.headers['Access-Control-Allow-Methods'] == 'GET, POST, OPTIONS'
             assert res.headers['Access-Control-Max-Age'] == '1728000'
-            assert res.headers['Access-Control-Allow-Headers'] == 'Content-Type,Origin,Accept'
+            assert res.headers['Access-Control-Allow-Headers'] == 'Content-Type,Origin,Accept,Authorization'
